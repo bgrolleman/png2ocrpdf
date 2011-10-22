@@ -1,10 +1,94 @@
 #!/bin/bash
+# vim: foldmethod=marker ts=4
 #
-# Quick Version
+# png2ocrpdf.sh - Convert group of .png files to Searchable PDF using OCR
+# 
+# Author: Bas Grolleman <bgrolleman@emendo-it.nl>
+# Usage: png2ocdpdf.sh <title> <file1> <file2> ...
+#
+# Defaults
+lang="dut"
+title="no_title_$$"
+author="Bas Grolleman"
+# show_help() {{{
+show_help() {
+	echo "
+Usage: $0 -v -t <title> -a <author> <files...>
 
-LANG="dut"
-FILE="$1"
+Options: 
+	-t Title
+	-a Author 
+	-v Verbose
+"
+	exit 1;
+}
+# }}}
+# verbose() {{{
+verbose() {
+	if [ $VERBOSE -gt 0 ]; then
+		echo "$1"
+	fi
+}
+# }}}
+# Setup (Show Help, Set Options) {{{
+# No Arguments, show help
+if [ $# -lt 1 ]; then
+	show_help
+fi
+# Get Options
+VERBOSE=0
+DEBUG=0
 
-cuneiform -l $LANG -f hocr -o "$FILE.hocr" "$FILE"
-hocr2pdf -i "$FILE" -s -o "$FILE.pdf" < "$FILE.hocr"
+while getopts \?a:t:vd opt ;do
+case "$opt" in
+	v) VERBOSE=1;;
+	t) title="$OPTARG";;
+  a) author="$OPTARG";;
+	l) lang="$OPTARG";;
+	d) DEBUG=1;;
+	\?) show_help;;
+esac
+done
+verbose "Starting $0"
+verbose "Verbose on"
+# }}}
 
+verbose "Language: $lang"
+verbose "Author: $author"
+verbose "Title: $title"
+
+# Make sure we only get filenames
+shift $((OPTIND-1))
+# Need a place to work
+WORKDIR=`mktemp -d`
+PDFFILES=""
+verbose "Workdir: $WORKDIR"
+for I in $@; do
+	verbose "Processing $I"
+	BASE=$(basename $I)
+	cuneiform -l $lang -f hocr -o "$WORKDIR/$BASE.hocr" "$I"
+	hocr2pdf -i "$I" -s -o "$WORKDIR/$BASE.pdf" < "$WORKDIR/$BASE.hocr"
+	PDFFILES="${PDFFILES} $WORKDIR/$BASE.pdf"
+done
+
+WORKFILE="${WORKDIR}/WorkFile"
+pdfjoin --outfile "${WORKFILE}.pdf" $PDFFILES
+
+cat > "${WORKDIR}/in.info" <<EOF
+InfoKey: Author
+InfoValue: ${author}
+InfoKey: Title
+InfoValue: ${title} 
+InfoKey: Creator
+InfoValue: png2ocrpdf
+EOF
+
+pdftk "${WORKFILE}.pdf" update_info "${WORKDIR}/in.info" output "${title}.pdf"
+
+
+if [ $DEBUG -gt 0 ]; then
+	verbose "Debug on, no cleanup of tmp dir $WORKDIR"
+else
+	verbose "Cleanup of $WORKDIR"
+	rm -rf "$WORKDIR"
+fi
